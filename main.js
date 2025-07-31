@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 
 const app = express();
-const PORT = 4000;
+const PORT = process.env.PORT || 4000;
 
 // Middleware
 app.use(express.json());
@@ -573,7 +573,8 @@ app.get('/api/default-data', (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`Invoice Generator Server running on http://localhost:${PORT}`);
-    console.log('Make sure to place your blank template image as "template.png" in the project root directory');
+    console.log('Make sure to place your blank template image as "frame.jpg" in the project root directory');
 });
 
+// Export the Express API for Vercel
 module.exports = app;
