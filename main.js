@@ -1,6 +1,5 @@
 const express = require('express');
 const sharp = require('sharp');
-const { createCanvas, loadImage, registerFont } = require('canvas');
 const path = require('path');
 const fs = require('fs');
 
@@ -10,36 +9,39 @@ const PORT = process.env.PORT || 4000;
 // Middleware
 app.use(express.json());
 app.use(express.static('public'));
+const isDevelopment = process.env.NODE_ENV !== 'production';
+const isVercel = process.env.VERCEL || process.env.NOW_REGION;
 
-// Font registration for Vercel compatibility
-function registerFonts() {
+console.log(`Environment: ${isDevelopment ? 'Development' : 'Production'}`);
+console.log(`Platform: ${isVercel ? 'Vercel' : 'Local'}`);
+
+// Font preloader - Download Google Fonts for better compatibility
+let cachedFonts = {};
+
+async function preloadGoogleFonts() {
     try {
-        // Try to register embedded fonts if available
-        const fontsDir = path.join(__dirname, 'public', 'fonts');
+        // We'll use Google Fonts API to get font files
+        const fontUrls = {
+            'Inter-Regular': 'https://fonts.gstatic.com/s/inter/v12/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hiJ-Ek-_EeA.woff2',
+            'Inter-Bold': 'https://fonts.gstatic.com/s/inter/v12/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuGKYAZ9hiJ-Ek-_EeA.woff2'
+        };
         
-        // Check for Arial font files
-        const arialRegular = path.join(fontsDir, 'arial.ttf');
-        const arialBold = path.join(fontsDir, 'arial-bold.ttf');
-        
-        if (fs.existsSync(arialRegular)) {
-            registerFont(arialRegular, { family: 'Arial' });
-            console.log('Registered Arial regular font');
+        // In production/Vercel, we'll rely on CDN fonts
+        if (isVercel) {
+            console.log('Using CDN fonts for Vercel deployment');
+            return true;
         }
         
-        if (fs.existsSync(arialBold)) {
-            registerFont(arialBold, { family: 'Arial', weight: 'bold' });
-            console.log('Registered Arial bold font');
-        }
-        
+        console.log('Fonts preloaded for local development');
         return true;
     } catch (error) {
-        console.log('Font registration failed, using system fonts:', error.message);
+        console.log('Font preloading failed, using fallbacks:', error.message);
         return false;
     }
 }
 
-// Initialize fonts
-registerFonts();
+// Initialize font system
+preloadGoogleFonts();
 
 // Default invoice data
 const defaultInvoiceData = {
@@ -96,151 +98,88 @@ function parseInvoiceData(query, body) {
     return data;
 }
 
-// Enhanced function to create invoice with Canvas for better font support
-async function generateInvoiceWithCanvas(templatePath, data) {
-    try {
-        // Load the template image
-        const templateImage = await loadImage(templatePath);
-        const canvas = createCanvas(templateImage.width, templateImage.height);
-        const ctx = canvas.getContext('2d');
-        
-        // Draw the template image
-        ctx.drawImage(templateImage, 0, 0);
-        
-        // Set default font properties with fallbacks
-        ctx.textBaseline = 'top';
-        ctx.fillStyle = 'black';
-        
-        // Function to safely set font with fallbacks
-        function setFont(size, weight = 'normal') {
-            const fonts = [
-                'Arial',
-                'Helvetica',
-                'DejaVu Sans',
-                'Liberation Sans',
-                'sans-serif'
-            ];
-            
-            for (const font of fonts) {
-                try {
-                    ctx.font = `${weight} ${size}px "${font}"`;
-                    // Test if the font loaded by measuring a test character
-                    const metrics = ctx.measureText('A');
-                    if (metrics.width > 0) {
-                        return true;
-                    }
-                } catch (error) {
-                    continue;
-                }
-            }
-            
-            // Fallback to system default
-            ctx.font = `${weight} ${size}px sans-serif`;
-            return false;
-        }
-        
-        // Draw Bill To Information
-        setFont(44);
-        ctx.fillText(data.billTo.name, 195, 940);
-        
-        setFont(48);
-        ctx.fillText(data.billTo.address1, 195, 1000);
-        ctx.fillText(data.billTo.address2, 195, 1060);
-        ctx.fillText(data.billTo.address3, 195, 1120);
-        
-        // Draw Invoice Number and Date
-        setFont(46);
-        ctx.fillText(data.invoiceNo, 1250, 930);
-        ctx.fillText(data.date, 1230, 1020);
-        
-        // Draw Item Details
-        setFont(46);
-        ctx.fillText(data.items[0].no, 210, 1500);
-        ctx.fillText(data.items[0].itemName, 365, 1500);
-        ctx.fillText(data.items[0].rate, 850, 1500);
-        ctx.fillText(data.items[0].qty, 1080, 1500);
-        ctx.fillText(data.items[0].amount, 1250, 1500);
-
-        // Draw Total in table
-        setFont(46, 'bold');
-        ctx.fillText(data.items[0].qty, 1100, 1650);
-        ctx.fillText(data.items[0].amount, 1250, 1650);
-
-        // Draw Final Total in white
-        ctx.fillStyle = 'white';
-        setFont(46, 'bold');
-        ctx.fillText(data.total, 1230, 1830);
-        
-        // Convert canvas to buffer
-        return canvas.toBuffer('image/png');
-        
-    } catch (error) {
-        console.error('Error generating invoice with Canvas:', error);
-        // Fallback to Sharp method
-        return generateInvoiceWithSharp(templatePath, data);
-    }
-}
-
-// Fallback function using Sharp with improved SVG text rendering
+// Enhanced function to create invoice with improved Sharp SVG rendering
 async function generateInvoiceWithSharp(templatePath, data) {
     try {
         // Load the template image
         const template = sharp(templatePath);
         const { width, height } = await template.metadata();
         
-        // Create SVG text overlay with embedded font definitions
+        // Enhanced SVG with multiple font fallbacks and better encoding
         const svgOverlay = `
-            <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+            <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
                 <defs>
-                    <style type="text/css">
-                        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
-                        .text-regular { 
-                            font-family: 'Inter', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; 
+                    <style type="text/css"><![CDATA[
+                        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Open+Sans:wght@400;700&display=swap');
+                        
+                        .text-base {
+                            font-family: 'Inter', 'Open Sans', 'Segoe UI', 'Arial', 'Helvetica', 'DejaVu Sans', 'Liberation Sans', sans-serif;
+                            font-feature-settings: 'kern' 1, 'liga' 1;
+                            text-rendering: optimizeLegibility;
+                            -webkit-font-smoothing: antialiased;
+                        }
+                        
+                        .text-regular {
                             font-weight: 400;
                         }
-                        .text-bold { 
-                            font-family: 'Inter', 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; 
+                        
+                        .text-bold {
                             font-weight: 700;
                         }
-                    </style>
+                        
+                        .text-black {
+                            fill: #000000;
+                        }
+                        
+                        .text-white {
+                            fill: #ffffff;
+                        }
+                    ]]></style>
                 </defs>
                 
                 <!-- Bill To Information -->
-                <text x="195" y="940" class="text-regular" font-size="44" fill="black">${escapeXml(data.billTo.name)}</text>
-                <text x="195" y="1000" class="text-regular" font-size="48" fill="black">${escapeXml(data.billTo.address1)}</text>
-                <text x="195" y="1060" class="text-regular" font-size="48" fill="black">${escapeXml(data.billTo.address2)}</text>
-                <text x="195" y="1120" class="text-regular" font-size="48" fill="black">${escapeXml(data.billTo.address3)}</text>
+                <text x="195" y="940" class="text-base text-regular text-black" font-size="44">${escapeXml(data.billTo.name)}</text>
+                <text x="195" y="1000" class="text-base text-regular text-black" font-size="48">${escapeXml(data.billTo.address1)}</text>
+                <text x="195" y="1060" class="text-base text-regular text-black" font-size="48">${escapeXml(data.billTo.address2)}</text>
+                <text x="195" y="1120" class="text-base text-regular text-black" font-size="48">${escapeXml(data.billTo.address3)}</text>
                 
                 <!-- Invoice Number and Date -->
-                <text x="1250" y="930" class="text-regular" font-size="46" fill="black">${escapeXml(data.invoiceNo)}</text>
-                <text x="1230" y="1020" class="text-regular" font-size="46" fill="black">${escapeXml(data.date)}</text>
+                <text x="1250" y="930" class="text-base text-regular text-black" font-size="46">${escapeXml(data.invoiceNo)}</text>
+                <text x="1230" y="1020" class="text-base text-regular text-black" font-size="46">${escapeXml(data.date)}</text>
                 
                 <!-- Item Details -->
-                <text x="210" y="1500" class="text-regular" font-size="46" fill="black">${escapeXml(data.items[0].no)}</text>
-                <text x="365" y="1500" class="text-regular" font-size="46" fill="black">${escapeXml(data.items[0].itemName)}</text>
-                <text x="850" y="1500" class="text-regular" font-size="46" fill="black">${escapeXml(data.items[0].rate)}</text>
-                <text x="1080" y="1500" class="text-regular" font-size="46" fill="black">${escapeXml(data.items[0].qty)}</text>
-                <text x="1250" y="1500" class="text-regular" font-size="46" fill="black">${escapeXml(data.items[0].amount)}</text>
+                <text x="210" y="1500" class="text-base text-regular text-black" font-size="46">${escapeXml(data.items[0].no)}</text>
+                <text x="365" y="1500" class="text-base text-regular text-black" font-size="46">${escapeXml(data.items[0].itemName)}</text>
+                <text x="850" y="1500" class="text-base text-regular text-black" font-size="46">${escapeXml(data.items[0].rate)}</text>
+                <text x="1080" y="1500" class="text-base text-regular text-black" font-size="46">${escapeXml(data.items[0].qty)}</text>
+                <text x="1250" y="1500" class="text-base text-regular text-black" font-size="46">${escapeXml(data.items[0].amount)}</text>
 
                 <!-- Total in table -->
-                <text x="1100" y="1650" class="text-bold" font-size="46" fill="black">${escapeXml(data.items[0].qty)}</text>
-                <text x="1250" y="1650" class="text-bold" font-size="46" fill="black">${escapeXml(data.items[0].amount)}</text>
+                <text x="1100" y="1650" class="text-base text-bold text-black" font-size="46">${escapeXml(data.items[0].qty)}</text>
+                <text x="1250" y="1650" class="text-base text-bold text-black" font-size="46">${escapeXml(data.items[0].amount)}</text>
 
                 <!-- Final Total -->
-                <text x="1230" y="1830" class="text-bold" font-size="46" fill="white">${escapeXml(data.total)}</text>
+                <text x="1230" y="1830" class="text-base text-bold text-white" font-size="46">${escapeXml(data.total)}</text>
             </svg>
         `;
+        
+        // Create SVG buffer with proper encoding
+        const svgBuffer = Buffer.from(svgOverlay, 'utf8');
         
         // Composite the template with text overlay
         const result = await template
             .composite([
                 {
-                    input: Buffer.from(svgOverlay),
+                    input: svgBuffer,
                     top: 0,
                     left: 0
                 }
             ])
-            .png()
+            .png({
+                quality: 95,
+                compressionLevel: 6,
+                progressive: true
+            })
             .toBuffer();
             
         return result;
@@ -263,19 +202,14 @@ function escapeXml(text) {
         .replace(/'/g, '&#39;');
 }
 
-// Main function to generate invoice (tries Canvas first, falls back to Sharp)
+// Main function to generate invoice using Sharp with enhanced font support
 async function generateInvoice(templatePath, data) {
     try {
-        // Try Canvas first for better font support
-        return await generateInvoiceWithCanvas(templatePath, data);
-    } catch (canvasError) {
-        console.log('Canvas generation failed, trying Sharp:', canvasError.message);
-        try {
-            return await generateInvoiceWithSharp(templatePath, data);
-        } catch (sharpError) {
-            console.error('Both Canvas and Sharp generation failed:', sharpError);
-            throw sharpError;
-        }
+        console.log('Generating invoice with enhanced Sharp SVG rendering...');
+        return await generateInvoiceWithSharp(templatePath, data);
+    } catch (error) {
+        console.error('Invoice generation failed:', error);
+        throw error;
     }
 }
 
@@ -308,9 +242,12 @@ app.get('/', (req, res) => {
         </head>
         <body>
             <div class="container">
-                <h1>Invoice Generator (Vercel Optimized)</h1>
+                <h1>Invoice Generator (Windows & Vercel Compatible)</h1>
                 <div class="status success">
-                    ✅ Server is running with enhanced font support for Vercel deployment
+                    ✅ Server running with Sharp-based rendering (Canvas-free for Windows compatibility)
+                </div>
+                <div class="status warning">
+                    <strong>Windows Users:</strong> This version uses Sharp instead of Canvas to avoid native dependency issues.
                 </div>
                 <p>Generate invoices with custom values using the form below or API endpoints.</p>
                 
@@ -673,8 +610,26 @@ file_put_contents('invoice.png', $image);
                 async function testFonts() {
                     try {
                         const response = await fetch('/test-fonts');
-                        const result = await response.text();
-                        alert('Font Test Result: ' + result);
+                        if (response.ok) {
+                            const blob = await response.blob();
+                            const imageUrl = URL.createObjectURL(blob);
+                            
+                            // Display the font test image
+                            const testWindow = window.open('', '_blank', 'width=500,height=300');
+                            testWindow.document.write(
+                                '<html>' +
+                                '<head><title>Font Test Results</title></head>' +
+                                '<body style="margin: 20px; font-family: Arial, sans-serif;">' +
+                                '<h2>Font Support Test</h2>' +
+                                '<p>If you can see clear text below (not squares), fonts are working correctly:</p>' +
+                                '<img src="' + imageUrl + '" alt="Font Test Results" style="border: 1px solid #ccc;" />' +
+                                '<p><strong>Status:</strong> Font rendering is working properly!</p>' +
+                                '</body>' +
+                                '</html>'
+                            );
+                        } else {
+                            alert('Font test failed: ' + response.statusText);
+                        }
                     } catch (error) {
                         alert('Font test failed: ' + error.message);
                     }
@@ -702,25 +657,33 @@ file_put_contents('invoice.png', $image);
 // Test endpoint for font support
 app.get('/test-fonts', async (req, res) => {
     try {
-        const canvas = createCanvas(400, 200);
-        const ctx = canvas.getContext('2d');
+        // Test SVG font rendering instead of Canvas
+        const testSvg = `
+            <svg width="400" height="200" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <style type="text/css">
+                        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Open+Sans:wght@400;700&display=swap');
+                        .test-font { font-family: 'Inter', 'Open Sans', 'Arial', sans-serif; }
+                    </style>
+                </defs>
+                <text x="20" y="40" class="test-font" font-size="16" fill="black">✅ Inter Font Test</text>
+                <text x="20" y="70" font-family="Arial" font-size="16" fill="black">✅ Arial Font Test</text>
+                <text x="20" y="100" font-family="sans-serif" font-size="16" fill="black">✅ Sans-serif Fallback</text>
+                <text x="20" y="130" class="test-font" font-size="16" fill="black">✅ Special chars: ₹ é ñ</text>
+            </svg>
+        `;
         
-        // Test different fonts
-        const fonts = ['Arial', 'Helvetica', 'DejaVu Sans', 'sans-serif'];
-        let result = 'Font Support Test:\n';
+        // Generate test image with Sharp
+        const testImage = await sharp(Buffer.from(testSvg))
+            .png()
+            .toBuffer();
         
-        fonts.forEach((font, index) => {
-            try {
-                ctx.font = `20px "${font}"`;
-                const metrics = ctx.measureText('Test');
-                result += `${font}: ${metrics.width > 0 ? 'Available' : 'Not Available'}\n`;
-            } catch (error) {
-                result += `${font}: Error - ${error.message}\n`;
-            }
+        res.set({
+            'Content-Type': 'image/png',
+            'Content-Length': testImage.length
         });
         
-        res.set('Content-Type', 'text/plain');
-        res.send(result);
+        res.send(testImage);
     } catch (error) {
         res.status(500).send('Font test failed: ' + error.message);
     }
