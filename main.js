@@ -9,11 +9,6 @@ const PORT = process.env.PORT || 4000;
 // Middleware
 app.use(express.json());
 app.use(express.static('public'));
-const isDevelopment = process.env.NODE_ENV !== 'production';
-const isVercel = process.env.VERCEL || process.env.NOW_REGION;
-
-console.log(`Environment: ${isDevelopment ? 'Development' : 'Production'}`);
-console.log(`Platform: ${isVercel ? 'Vercel' : 'Local'}`);
 
 // Font preloader - Download Google Fonts for better compatibility
 let cachedFonts = {};
