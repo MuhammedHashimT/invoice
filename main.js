@@ -742,10 +742,95 @@ app.get('/api/default-data', (req, res) => {
     res.json(defaultInvoiceData);
 });
 
+// Debug endpoint to check Sharp and system dependencies
+app.get('/debug-sharp', (req, res) => {
+    try {
+        const sharp = require('sharp');
+        const os = require('os');
+        
+        // Check if Sharp is working
+        const testInfo = {
+            sharp: {
+                version: sharp.versions,
+                formats: sharp.format,
+                available: true
+            },
+            system: {
+                platform: process.platform,
+                arch: process.arch,
+                nodeVersion: process.version,
+                memory: {
+                    total: Math.round(os.totalmem() / 1024 / 1024) + ' MB',
+                    free: Math.round(os.freemem() / 1024 / 1024) + ' MB'
+                },
+                cpus: os.cpus().length,
+                uptime: Math.round(process.uptime()) + ' seconds'
+            },
+            environment: {
+                isVercel: process.env.VERCEL === '1',
+                isProduction: process.env.NODE_ENV === 'production',
+                port: PORT
+            },
+            paths: {
+                cwd: process.cwd(),
+                templateExists: fs.existsSync(path.join(__dirname, 'frame.jpg'))
+            }
+        };
+        
+        // Test Sharp functionality
+        sharp({
+            create: {
+                width: 100,
+                height: 100,
+                channels: 3,
+                background: { r: 255, g: 255, b: 255 }
+            }
+        })
+        .png()
+        .toBuffer()
+        .then(buffer => {
+            testInfo.sharp.testSuccess = true;
+            testInfo.sharp.testSize = buffer.length + ' bytes';
+            res.json(testInfo);
+        })
+        .catch(error => {
+            testInfo.sharp.testSuccess = false;
+            testInfo.sharp.testError = error.message;
+            res.status(500).json(testInfo);
+        });
+        
+    } catch (error) {
+        res.status(500).json({
+            error: 'Sharp not available',
+            message: error.message,
+            stack: error.stack,
+            system: {
+                platform: process.platform,
+                arch: process.arch,
+                nodeVersion: process.version
+            }
+        });
+    }
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        version: process.version
+    });
+});
+
 app.listen(PORT, () => {
     console.log(`Invoice Generator Server running on http://localhost:${PORT}`);
     console.log('Enhanced version with Canvas and font fallback support for Vercel');
     console.log('Make sure to place your blank template image as "frame.jpg" in the project root directory');
+    console.log('Debug endpoints available:');
+    console.log(`  - Health check: http://localhost:${PORT}/health`);
+    console.log(`  - Sharp debug: http://localhost:${PORT}/debug-sharp`);
 });
 
 // Export the Express API for Vercel

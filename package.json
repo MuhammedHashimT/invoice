@@ -14,7 +14,16 @@
     "pm2:delete": "pm2 delete invoice-generator",
     "pm2:logs": "pm2 logs invoice-generator",
     "pm2:status": "pm2 status",
-    "pm2:monitor": "pm2 monit"
+    "pm2:monitor": "pm2 monit",
+    "docker:build": "docker build -t invoice-generator .",
+    "docker:run": "docker run -p 4000:4000 invoice-generator",
+    "docker:compose": "docker-compose up -d",
+    "docker:logs": "docker-compose logs -f",
+    "docker:stop": "docker-compose down",
+    "setup": "chmod +x setup-server.sh && ./setup-server.sh",
+    "diagnose": "chmod +x diagnose.sh && ./diagnose.sh",
+    "test:sharp": "node -e \"console.log('Sharp test:', require('sharp').versions)\"",
+    "test:deps": "node -e \"console.log('Dependencies check:'); try { console.log('Express:', require('express/package.json').version); console.log('Sharp:', require('sharp/package.json').version); } catch(e) { console.error('Missing deps:', e.message); }\""
   },
   "dependencies": {
     "express": "^4.18.2",
